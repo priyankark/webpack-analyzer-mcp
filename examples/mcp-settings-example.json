@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "webpack-analyzer": {
+      "command": "npx",
+      "args": ["webpack-analyzer-mcp"],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}

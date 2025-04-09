@@ -1,0 +1,34 @@
+{
+  "name": "webpack-analyzer-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for analyzing webpack builds",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "webpack-analyzer-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "prepare": "npm run build && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "release": "node scripts/release.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "webpack",
+    "analyzer",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.9.0",
+    "@types/node": "^22.14.0",
+    "typescript": "^5.8.3",
+    "webpack-bundle-analyzer": "^4.10.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
