@@ -1,7 +1,7 @@
 {
   "name": "webpack-analyzer-mcp",
   "version": "1.0.2",
-  "description": "MCP server for analyzing webpack builds",
+  "description": "MCP server for analyzing webpack and Next.js builds",
   "main": "build/index.js",
   "type": "module",
   "bin": {
@@ -16,6 +16,7 @@
   },
   "keywords": [
     "webpack",
+    "nextjs",
     "analyzer",
     "mcp",
     "model-context-protocol"

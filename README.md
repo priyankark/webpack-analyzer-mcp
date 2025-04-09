@@ -1,6 +1,6 @@
 # Webpack Analyzer MCP
 
-An MCP (Model Context Protocol) server for analyzing webpack builds. This tool allows AI assistants to analyze webpack stats files and configurations to provide insights about bundle sizes, dependencies, and optimization opportunities.
+An MCP (Model Context Protocol) server for analyzing webpack and Next.js builds. This tool allows AI assistants to analyze webpack stats files, webpack configurations, and Next.js projects to provide insights about bundle sizes, dependencies, and optimization opportunities.
 
 ## Installation
 
@@ -80,7 +80,33 @@ Analyzes a webpack configuration by building the project and generating a report
 }
 ```
 
+### 3. analyze_nextjs_build
+
+Analyzes a Next.js project by building it and generating a report.
+
+**Parameters:**
+
+- `projectDir` (required): Path to the Next.js project directory
+- `outputDir` (optional): Directory to output the report (defaults to project directory)
+- `port` (optional): Port to run the analyzer server on (defaults to 8888)
+- `openBrowser` (optional): Whether to open the browser automatically (defaults to true)
+- `generateReport` (optional): Whether to generate a static HTML report (defaults to true)
+
+**Example:**
+
+```json
+{
+  "projectDir": "./my-nextjs-app",
+  "outputDir": "./reports",
+  "port": 9000,
+  "openBrowser": true,
+  "generateReport": true
+}
+```
+
 ## Generating Stats Files
+
+### For Webpack Projects
 
 To generate a webpack stats file that can be analyzed:
 
@@ -113,6 +139,29 @@ module.exports = {
 ```bash
 npx webpack --profile --json > stats.json
 ```
+
+### For Next.js Projects
+
+Next.js uses webpack under the hood, but has its own build process. You can use the `analyze_nextjs_build` tool to analyze a Next.js project directly:
+
+1. Make sure your Next.js project has the necessary dependencies:
+
+```bash
+npm install --save-dev webpack-bundle-analyzer
+```
+
+2. Use the `analyze_nextjs_build` tool with your Next.js project directory:
+
+```json
+{
+  "projectDir": "./my-nextjs-app"
+}
+```
+
+This will:
+- Create a temporary Next.js configuration that includes the webpack-bundle-analyzer
+- Run the Next.js build with this configuration
+- Generate a report showing the bundle sizes and dependencies
 
 ## Integration with MCP Settings
 

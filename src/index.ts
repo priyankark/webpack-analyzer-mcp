@@ -7,6 +7,7 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
+import { existsSync } from 'fs';
 import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
@@ -31,6 +32,14 @@ interface AnalyzeWebpackConfigArgs {
   generateReport?: boolean;
 }
 
+interface AnalyzeNextjsBuildArgs {
+  projectDir: string;
+  outputDir?: string;
+  port?: number;
+  openBrowser?: boolean;
+  generateReport?: boolean;
+}
+
 const isValidAnalyzeWebpackBuildArgs = (args: any): args is AnalyzeWebpackBuildArgs => {
   return (
     typeof args === 'object' &&
@@ -48,6 +57,18 @@ const isValidAnalyzeWebpackConfigArgs = (args: any): args is AnalyzeWebpackConfi
     typeof args === 'object' &&
     args !== null &&
     typeof args.configPath === 'string' &&
+    (args.outputDir === undefined || typeof args.outputDir === 'string') &&
+    (args.port === undefined || typeof args.port === 'number') &&
+    (args.openBrowser === undefined || typeof args.openBrowser === 'boolean') &&
+    (args.generateReport === undefined || typeof args.generateReport === 'boolean')
+  );
+};
+
+const isValidAnalyzeNextjsBuildArgs = (args: any): args is AnalyzeNextjsBuildArgs => {
+  return (
+    typeof args === 'object' &&
+    args !== null &&
+    typeof args.projectDir === 'string' &&
     (args.outputDir === undefined || typeof args.outputDir === 'string') &&
     (args.port === undefined || typeof args.port === 'number') &&
     (args.openBrowser === undefined || typeof args.openBrowser === 'boolean') &&
@@ -144,6 +165,36 @@ class WebpackAnalyzerServer {
             required: ['configPath'],
           },
         },
+        {
+          name: 'analyze_nextjs_build',
+          description: 'Analyze a Next.js project by building it and generating a report',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              projectDir: {
+                type: 'string',
+                description: 'Path to the Next.js project directory',
+              },
+              outputDir: {
+                type: 'string',
+                description: 'Directory to output the report (defaults to project directory)',
+              },
+              port: {
+                type: 'number',
+                description: 'Port to run the analyzer server on (defaults to 8888)',
+              },
+              openBrowser: {
+                type: 'boolean',
+                description: 'Whether to open the browser automatically (defaults to true)',
+              },
+              generateReport: {
+                type: 'boolean',
+                description: 'Whether to generate a static HTML report (defaults to true)',
+              },
+            },
+            required: ['projectDir'],
+          },
+        },
       ],
     }));
 
@@ -166,6 +217,15 @@ class WebpackAnalyzerServer {
             );
           }
           return this.analyzeWebpackConfig(request.params.arguments);
+          
+        case 'analyze_nextjs_build':
+          if (!isValidAnalyzeNextjsBuildArgs(request.params.arguments)) {
+            throw new McpError(
+              ErrorCode.InvalidParams,
+              'Invalid arguments for analyze_nextjs_build'
+            );
+          }
+          return this.analyzeNextjsBuild(request.params.arguments);
 
         default:
           throw new McpError(
@@ -398,6 +458,184 @@ module.exports = {
             text: JSON.stringify({
               success: false,
               message: `Error analyzing webpack config: ${(error as Error).message}`,
+              error: (error as Error).stack,
+            }, null, 2),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async analyzeNextjsBuild(args: AnalyzeNextjsBuildArgs) {
+    try {
+      // Check if project directory exists
+      const projectDir = path.resolve(args.projectDir);
+      await fs.access(projectDir);
+      
+      // Check if it's a Next.js project
+      const packageJsonPath = path.join(projectDir, 'package.json');
+      const nextConfigPath = path.join(projectDir, 'next.config.js');
+      const nextConfigMjsPath = path.join(projectDir, 'next.config.mjs');
+      
+      let isNextProject = false;
+      let hasNextConfig = false;
+      let isESM = false;
+      
+      // Check if package.json exists and contains Next.js dependency
+      if (existsSync(packageJsonPath)) {
+        const packageJsonContent = await fs.readFile(packageJsonPath, 'utf-8');
+        const packageJson = JSON.parse(packageJsonContent);
+        isNextProject = !!(packageJson.dependencies?.next || packageJson.devDependencies?.next);
+        
+        // Check if the project uses ESM
+        isESM = packageJson.type === 'module';
+      }
+      
+      // Check if next.config.js exists
+      if (existsSync(nextConfigPath)) {
+        hasNextConfig = true;
+      } else if (existsSync(nextConfigMjsPath)) {
+        hasNextConfig = true;
+        isESM = true;
+      }
+      
+      if (!isNextProject) {
+        throw new Error('The specified directory does not appear to be a Next.js project. Make sure it has Next.js as a dependency in package.json.');
+      }
+      
+      // Set default values
+      const outputDir = args.outputDir || projectDir;
+      const port = args.port || 8888;
+      const openBrowser = args.openBrowser !== false;
+      const generateReport = args.generateReport !== false;
+      
+      // Ensure output directory exists
+      await fs.mkdir(outputDir, { recursive: true });
+      
+      // Create a temporary Next.js config that includes the analyzer plugin
+      const tempConfigPath = path.join(outputDir, 'next.analyzer.config.js');
+      
+      let analyzerConfig;
+      const configImportPath = hasNextConfig ? (isESM ? nextConfigMjsPath : nextConfigPath) : null;
+      
+      if (isESM) {
+        // ES Modules version
+        analyzerConfig = `
+import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
+${configImportPath ? `import baseConfig from '${configImportPath}';` : ''}
+
+/** @type {import('next').NextConfig} */
+const nextConfig = ${configImportPath ? 'baseConfig' : '{}'};
+
+export default {
+  ...nextConfig,
+  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+    // Use the existing webpack config function if it exists
+    let updatedConfig = config;
+    if (typeof nextConfig.webpack === 'function') {
+      updatedConfig = nextConfig.webpack(config, { buildId, dev, isServer, defaultLoaders, webpack });
+    }
+    
+    // Only add analyzer plugin to the client-side bundle
+    if (!isServer) {
+      updatedConfig.plugins.push(
+        new BundleAnalyzerPlugin({
+          analyzerMode: ${generateReport ? "'static'" : "'server'"},
+          analyzerPort: ${port},
+          reportFilename: '${path.join(outputDir, 'report.html').replace(/\\/g, '\\\\')}',
+          openAnalyzer: ${openBrowser},
+          generateStatsFile: true,
+          statsFilename: '${path.join(outputDir, 'stats.json').replace(/\\/g, '\\\\')}',
+          statsOptions: null,
+          excludeAssets: null,
+          logLevel: 'info',
+        })
+      );
+    }
+    
+    return updatedConfig;
+  },
+};
+        `;
+      } else {
+        // CommonJS version
+        analyzerConfig = `
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+${configImportPath ? `const baseConfig = require('${configImportPath}');` : ''}
+
+/** @type {import('next').NextConfig} */
+const nextConfig = ${configImportPath ? 'baseConfig' : '{}'};
+
+module.exports = {
+  ...nextConfig,
+  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+    // Use the existing webpack config function if it exists
+    let updatedConfig = config;
+    if (typeof nextConfig.webpack === 'function') {
+      updatedConfig = nextConfig.webpack(config, { buildId, dev, isServer, defaultLoaders, webpack });
+    }
+    
+    // Only add analyzer plugin to the client-side bundle
+    if (!isServer) {
+      updatedConfig.plugins.push(
+        new BundleAnalyzerPlugin({
+          analyzerMode: ${generateReport ? "'static'" : "'server'"},
+          analyzerPort: ${port},
+          reportFilename: '${path.join(outputDir, 'report.html').replace(/\\/g, '\\\\')}',
+          openAnalyzer: ${openBrowser},
+          generateStatsFile: true,
+          statsFilename: '${path.join(outputDir, 'stats.json').replace(/\\/g, '\\\\')}',
+          statsOptions: null,
+          excludeAssets: null,
+          logLevel: 'info',
+        })
+      );
+    }
+    
+    return updatedConfig;
+  },
+};
+        `;
+      }
+      
+      await fs.writeFile(tempConfigPath, analyzerConfig, 'utf-8');
+      
+      // Run Next.js build with the temporary config
+      const { stdout, stderr } = await execAsync(`cd ${projectDir} && npx next build`, {
+        env: {
+          ...process.env,
+          NEXT_CONFIG_FILE: tempConfigPath,
+        },
+      });
+      
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              message: `Next.js build analyzed successfully.${
+                generateReport ? ` Report generated at ${path.join(outputDir, 'report.html')}` : ''
+              }${
+                !generateReport ? ` Analyzer server running at http://localhost:${port}` : ''
+              }`,
+              reportPath: generateReport ? path.join(outputDir, 'report.html') : null,
+              serverUrl: !generateReport ? `http://localhost:${port}` : null,
+              stdout,
+              stderr,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              success: false,
+              message: `Error analyzing Next.js build: ${(error as Error).message}`,
               error: (error as Error).stack,
             }, null, 2),
           },
