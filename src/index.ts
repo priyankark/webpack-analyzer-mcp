@@ -184,13 +184,22 @@ class WebpackAnalyzerServer {
       
       // Read stats file
       const statsContent = await fs.readFile(statsFilePath, 'utf-8');
-      const stats = JSON.parse(statsContent);
+      let stats;
+      
+      try {
+        stats = JSON.parse(statsContent);
+      } catch (error) {
+        throw new Error(`Failed to parse stats file: ${(error as Error).message}. Make sure it's a valid JSON file.`);
+      }
       
       // Set default values
       const outputDir = args.outputDir || path.dirname(statsFilePath);
       const port = args.port || 8888;
       const openBrowser = args.openBrowser !== false;
       const generateReport = args.generateReport !== false;
+      
+      // Ensure output directory exists
+      await fs.mkdir(outputDir, { recursive: true });
       
       // Create analyzer instance
       const analyzer = new BundleAnalyzerPlugin({
@@ -205,16 +214,38 @@ class WebpackAnalyzerServer {
         logLevel: 'info',
       });
       
-      // Generate report
-      await analyzer.apply({
+      // Create a mock webpack compiler to use with the analyzer
+      const mockCompiler = {
         hooks: {
-          compilation: {
-            tap: (_name: string, callback: (compilation: any) => void) => {
-              callback({ stats });
-            },
+          done: {
+            tap: (name: string, callback: (stats: any) => void) => {
+              callback({ toJson: () => stats });
+            }
           },
+          compilation: {
+            tap: (name: string, callback: (compilation: any) => void) => {
+              callback({
+                hooks: {
+                  processAssets: {
+                    tap: () => {}
+                  }
+                }
+              });
+            }
+          },
+          afterEmit: {
+            tap: () => {}
+          }
         },
-      } as any);
+        options: {
+          output: {
+            path: outputDir
+          }
+        }
+      };
+      
+      // Apply the analyzer to our mock compiler
+      analyzer.apply(mockCompiler as any);
       
       return {
         content: [
@@ -262,10 +293,25 @@ class WebpackAnalyzerServer {
       const openBrowser = args.openBrowser !== false;
       const generateReport = args.generateReport !== false;
       
+      // Ensure output directory exists
+      await fs.mkdir(outputDir, { recursive: true });
+      
+      // Determine if the config file is using ES modules or CommonJS
+      // by checking the file content
+      const configContent = await fs.readFile(configPath, 'utf-8');
+      const isESM = configContent.includes('export default') || 
+                    configContent.includes('export =') ||
+                    configContent.includes('export const') ||
+                    configContent.includes('export function');
+      
       // Create a temporary webpack config that includes the analyzer plugin
       const tempConfigPath = path.join(outputDir, 'webpack.analyzer.config.js');
       
-      const analyzerConfig = `
+      let analyzerConfig;
+      
+      if (isESM) {
+        // ES Modules version
+        analyzerConfig = `
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { BundleAnalyzerPlugin } from 'webpack-bundle-analyzer';
@@ -291,7 +337,34 @@ export default {
     }),
   ],
 };
-      `;
+        `;
+      } else {
+        // CommonJS version
+        analyzerConfig = `
+const path = require('path');
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+const baseConfig = require('${configPath}');
+
+// Merge the base config with the analyzer plugin
+module.exports = {
+  ...baseConfig,
+  plugins: [
+    ...(baseConfig.plugins || []),
+    new BundleAnalyzerPlugin({
+      analyzerMode: ${generateReport ? "'static'" : "'server'"},
+      analyzerPort: ${port},
+      reportFilename: path.join(__dirname, 'report.html'),
+      openAnalyzer: ${openBrowser},
+      generateStatsFile: true,
+      statsFilename: path.join(__dirname, 'stats.json'),
+      statsOptions: null,
+      excludeAssets: null,
+      logLevel: 'info',
+    }),
+  ],
+};
+        `;
+      }
       
       await fs.writeFile(tempConfigPath, analyzerConfig, 'utf-8');
       
