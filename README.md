@@ -18,7 +18,19 @@ npx webpack-analyzer-mcp
 
 ## Usage with AI Assistants
 
-Once the MCP server is running, AI assistants that support the Model Context Protocol can use it to analyze webpack builds. The server provides the following tools:
+Use the following json config:
+```json
+{
+  "mcpServers": {
+    "webpack-analyzer": {
+      "command": "npx",
+      "args": ["webpack-analyzer-mcp"],
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
 
 ### 1. analyze_webpack_stats
 
