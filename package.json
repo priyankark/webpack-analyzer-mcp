@@ -26,10 +26,15 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.9.0",
     "@types/node": "^22.14.0",
+    "@types/tmp": "^0.2.6",
+    "tmp-promise": "^3.0.3",
     "typescript": "^5.8.3",
     "webpack-bundle-analyzer": "^4.10.2"
   },
   "engines": {
     "node": ">=16.0.0"
+  },
+  "devDependencies": {
+    "webpack-cli": "^6.0.1"
   }
 }
