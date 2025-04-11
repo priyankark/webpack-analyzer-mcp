@@ -1132,3 +1132,20 @@ nextBuild.on('close', (code) => {
     console.error('Webpack Analyzer MCP server running on stdio');
   }
 }
+
+// Main function to run the server
+const main = async () => {
+  try {
+    const server = new WebpackAnalyzerServer();
+    await server.run();
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Run the server
+main().catch((error) => {
+  console.error('Unhandled error:', error);
+  process.exit(1);
+});
